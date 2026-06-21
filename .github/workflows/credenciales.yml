@@ -38,11 +38,31 @@ jobs:
       - name: Ejecutar script de actualización
         run: python3 scripts/actualizar_credenciales.py
 
+  keyvault:
+    needs: actualizar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Guardar credencial en KeyVault
+        run: python3 scripts/guardar_keyvault.py
+
+  auditoria:
+    needs: actualizar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Registrar en tabla de auditoría
+        run: python3 scripts/registrar_auditoria.py
+
   notificar:
-    needs: [crear, actualizar]
+    needs: [keyvault, auditoria]
     runs-on: ubuntu-latest
     steps:
       - name: Flujo completado
         run: |
           echo "Flujo de credenciales completado exitosamente"
-          echo "Creación y actualización ejecutadas sin errores"
+          echo "Credencial guardada en KeyVault y auditoría registrada"
