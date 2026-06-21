@@ -18,7 +18,8 @@ jobs:
         run: echo "¡Hola! Este es mi primer GitHub Action 🎉"
 
       - name: Mostrar fecha y hora
-        run: echo "Fecha actual: $(date)"
+        run: |
+          echo "Fecha actual: $(date '+%Y-%m-%d %H:%M:%S')"
 
       - name: Mostrar info del repositorio
         run: |
