@@ -1,10 +1,27 @@
 name: Gestión de Credenciales
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      client_name:
+        description: 'Nombre del cliente'
+        required: true
+      tenant:
+        description: 'Tenant'
+        required: true
+      tipo_credencial:
+        description: 'Tipo de credencial'
+        required: true
+        type: choice
+        options:
+          - cc
+          - ac
+      scopes:
+        description: 'Scopes (opcional)'
+        required: false
+      redirect:
+        description: 'Redirect URI (requerido para tipo ac)'
+        required: false
 
 jobs:
   validar:
@@ -20,41 +37,67 @@ jobs:
           test -f scripts/guardar_keyvault.py && echo "guardar_keyvault.py encontrado"
           test -f scripts/registrar_auditoria.py && echo "registrar_auditoria.py encontrado"
 
+      - name: Mostrar inputs recibidos
+        run: |
+          echo "client_name     : ${{ inputs.client_name }}"
+          echo "tenant          : ${{ inputs.tenant }}"
+          echo "tipo_credencial : ${{ inputs.tipo_credencial }}"
+          echo "scopes          : ${{ inputs.scopes }}"
+          echo "redirect        : ${{ inputs.redirect }}"
+
   crear:
     needs: validar
     runs-on: ubuntu-latest
     outputs:
       client_id: ${{ steps.crear.outputs.client_id }}
-      alias: ${{ steps.crear.outputs.alias }}
+      client_secret: ${{ steps.crear.outputs.client_secret }}
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Ejecutar script de creación
+      - name: Crear credencial
         id: crear
+        env:
+          CLIENT_NAME: ${{ inputs.client_name }}
         run: python3 scripts/crear_credenciales.py
 
-  actualizar:
+  esperar:
     needs: crear
     runs-on: ubuntu-latest
-    outputs:
-      client_id: ${{ steps.actualizar.outputs.client_id }}
-      alias: ${{ steps.actualizar.outputs.alias }}
-      redirect_uri: ${{ steps.actualizar.outputs.redirect_uri }}
-      scopes: ${{ steps.actualizar.outputs.scopes }}
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Ejecutar script de actualización
-        id: actualizar
+      - name: Esperar hasta que la credencial esté disponible
         env:
           CLIENT_ID: ${{ needs.crear.outputs.client_id }}
-          ALIAS: ${{ needs.crear.outputs.alias }}
+        run: |
+          for i in {1..10}; do
+            echo "Intento $i/10..."
+            python3 scripts/verificar_credencial.py && exit 0
+            sleep 10
+          done
+          echo "La credencial no estuvo disponible tras 10 intentos"
+          exit 1
+
+  actualizar:
+    needs: [crear, esperar]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Actualizar credencial
+        env:
+          CLIENT_ID: ${{ needs.crear.outputs.client_id }}
+          TENANT: ${{ inputs.tenant }}
+          TIPO_CREDENCIAL: ${{ inputs.tipo_credencial }}
+          SCOPES: ${{ inputs.scopes }}
+          REDIRECT: ${{ inputs.redirect }}
         run: python3 scripts/actualizar_credenciales.py
 
   keyvault:
-    needs: actualizar
+    needs: [crear, actualizar]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -62,11 +105,12 @@ jobs:
 
       - name: Guardar client_secret en KeyVault
         env:
-          CLIENT_ID: ${{ needs.actualizar.outputs.client_id }}
+          CLIENT_ID: ${{ needs.crear.outputs.client_id }}
+          CLIENT_SECRET: ${{ needs.crear.outputs.client_secret }}
         run: python3 scripts/guardar_keyvault.py
 
   auditoria:
-    needs: actualizar
+    needs: [crear, actualizar]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -74,9 +118,12 @@ jobs:
 
       - name: Registrar en tabla de auditoría
         env:
-          ALIAS: ${{ needs.actualizar.outputs.alias }}
-          REDIRECT_URI: ${{ needs.actualizar.outputs.redirect_uri }}
-          SCOPES: ${{ needs.actualizar.outputs.scopes }}
+          CLIENT_ID: ${{ needs.crear.outputs.client_id }}
+          CLIENT_NAME: ${{ inputs.client_name }}
+          TENANT: ${{ inputs.tenant }}
+          TIPO_CREDENCIAL: ${{ inputs.tipo_credencial }}
+          SCOPES: ${{ inputs.scopes }}
+          REDIRECT: ${{ inputs.redirect }}
         run: python3 scripts/registrar_auditoria.py
 
   notificar:
@@ -86,4 +133,6 @@ jobs:
       - name: Flujo completado
         run: |
           echo "Flujo de credenciales completado exitosamente"
-          echo "Credencial guardada en KeyVault y auditoría registrada"
+          echo "Cliente  : ${{ inputs.client_name }}"
+          echo "Tenant   : ${{ inputs.tenant }}"
+          echo "Tipo     : ${{ inputs.tipo_credencial }}"
