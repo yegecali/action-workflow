@@ -3,6 +3,13 @@ name: Gestión de Credenciales
 on:
   workflow_dispatch:
     inputs:
+      operacion:
+        description: 'Operación a ejecutar'
+        required: true
+        type: choice
+        options:
+          - crear_actualizar
+          - solo_actualizar
       client_name:
         description: 'Nombre del cliente'
         required: true
@@ -16,38 +23,24 @@ on:
         options:
           - cc
           - ac
+      client_id:
+        description: 'Client ID existente (solo para solo_actualizar)'
+        required: false
       scopes:
-        description: 'Scopes (opcional)'
+        description: 'Scopes'
         required: false
       redirect:
         description: 'Redirect URI (requerido para tipo ac)'
         required: false
+      app_roles:
+        description: 'App Roles a agregar (opcional, separados por coma)'
+        required: false
 
 jobs:
-  validar:
+  crear_sp:
+    if: ${{ inputs.operacion == 'crear_actualizar' }}
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Verificar que los scripts existen
-        run: |
-          test -f scripts/crear_credenciales.py && echo "crear_credenciales.py encontrado"
-          test -f scripts/actualizar_credenciales.py && echo "actualizar_credenciales.py encontrado"
-          test -f scripts/guardar_keyvault.py && echo "guardar_keyvault.py encontrado"
-          test -f scripts/registrar_auditoria.py && echo "registrar_auditoria.py encontrado"
-
-      - name: Mostrar inputs recibidos
-        run: |
-          echo "client_name     : ${{ inputs.client_name }}"
-          echo "tenant          : ${{ inputs.tenant }}"
-          echo "tipo_credencial : ${{ inputs.tipo_credencial }}"
-          echo "scopes          : ${{ inputs.scopes }}"
-          echo "redirect        : ${{ inputs.redirect }}"
-
-  crear:
-    needs: validar
-    runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       client_id: ${{ steps.crear.outputs.client_id }}
       client_secret: ${{ steps.crear.outputs.client_secret }}
@@ -55,49 +48,110 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Crear credencial
+      - name: Crear Service Principal
         id: crear
         env:
           CLIENT_NAME: ${{ inputs.client_name }}
-        run: python3 scripts/crear_credenciales.py
+          TENANT: ${{ inputs.tenant }}
+        run: python3 scripts/crear_sp.py
 
-  esperar:
-    needs: crear
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Esperar hasta que la credencial esté disponible
+      - name: Verificar propagación del SP
         env:
-          CLIENT_ID: ${{ needs.crear.outputs.client_id }}
+          CLIENT_ID: ${{ steps.crear.outputs.client_id }}
         run: |
-          for i in {1..10}; do
-            echo "Intento $i/10..."
-            python3 scripts/verificar_credencial.py && exit 0
-            sleep 10
+          for i in {1..12}; do
+            echo "Verificando SP - intento $i/12..."
+            python3 scripts/verificar_sp.py && exit 0
+            sleep 15
           done
-          echo "La credencial no estuvo disponible tras 10 intentos"
+          echo "ERROR: SP no disponible tras 3 minutos"
           exit 1
 
-  actualizar:
-    needs: [crear, esperar]
+  agregar_scopes:
+    needs: crear_sp
+    if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Actualizar credencial
+      - name: Agregar scopes al SP
         env:
-          CLIENT_ID: ${{ needs.crear.outputs.client_id }}
-          TENANT: ${{ inputs.tenant }}
-          TIPO_CREDENCIAL: ${{ inputs.tipo_credencial }}
+          CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
           SCOPES: ${{ inputs.scopes }}
-          REDIRECT: ${{ inputs.redirect }}
-        run: python3 scripts/actualizar_credenciales.py
+          TIPO_CREDENCIAL: ${{ inputs.tipo_credencial }}
+        run: python3 scripts/agregar_scopes.py
+
+      - name: Verificar propagación de scopes
+        env:
+          CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
+        run: |
+          for i in {1..12}; do
+            echo "Verificando scopes - intento $i/12..."
+            python3 scripts/verificar_scopes.py && exit 0
+            sleep 15
+          done
+          echo "ERROR: Scopes no propagados tras 3 minutos"
+          exit 1
+
+  grant_admin:
+    needs: [crear_sp, agregar_scopes]
+    if: always() && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar Admin Consent
+        env:
+          CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
+          TENANT: ${{ inputs.tenant }}
+        run: python3 scripts/grant_admin.py
+
+      - name: Verificar propagación del Admin Consent
+        env:
+          CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
+        run: |
+          for i in {1..12}; do
+            echo "Verificando Admin Consent - intento $i/12..."
+            python3 scripts/verificar_grant.py && exit 0
+            sleep 15
+          done
+          echo "ERROR: Admin Consent no activo tras 3 minutos"
+          exit 1
+
+  app_roles:
+    needs: [crear_sp, grant_admin]
+    if: always() && !failure() && !cancelled() && inputs.app_roles != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Agregar App Roles
+        env:
+          CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
+          APP_ROLES: ${{ inputs.app_roles }}
+        run: python3 scripts/agregar_roles.py
+
+      - name: Verificar propagación de App Roles
+        env:
+          CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
+        run: |
+          for i in {1..12}; do
+            echo "Verificando App Roles - intento $i/12..."
+            python3 scripts/verificar_roles.py && exit 0
+            sleep 15
+          done
+          echo "ERROR: App Roles no propagados tras 3 minutos"
+          exit 1
 
   keyvault:
-    needs: [crear, actualizar]
+    needs: [crear_sp, grant_admin, app_roles]
+    if: always() && !failure() && !cancelled() && inputs.operacion == 'crear_actualizar'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -105,12 +159,13 @@ jobs:
 
       - name: Guardar client_secret en KeyVault
         env:
-          CLIENT_ID: ${{ needs.crear.outputs.client_id }}
-          CLIENT_SECRET: ${{ needs.crear.outputs.client_secret }}
+          CLIENT_ID: ${{ needs.crear_sp.outputs.client_id }}
+          CLIENT_SECRET: ${{ needs.crear_sp.outputs.client_secret }}
         run: python3 scripts/guardar_keyvault.py
 
   auditoria:
-    needs: [crear, actualizar]
+    needs: [crear_sp, grant_admin, app_roles]
+    if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -118,7 +173,7 @@ jobs:
 
       - name: Registrar en tabla de auditoría
         env:
-          CLIENT_ID: ${{ needs.crear.outputs.client_id }}
+          CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
           CLIENT_NAME: ${{ inputs.client_name }}
           TENANT: ${{ inputs.tenant }}
           TIPO_CREDENCIAL: ${{ inputs.tipo_credencial }}
@@ -126,13 +181,32 @@ jobs:
           REDIRECT: ${{ inputs.redirect }}
         run: python3 scripts/registrar_auditoria.py
 
-  notificar:
+  notificar_exito:
     needs: [keyvault, auditoria]
+    if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
-      - name: Flujo completado
+      - name: Flujo completado exitosamente
         run: |
-          echo "Flujo de credenciales completado exitosamente"
-          echo "Cliente  : ${{ inputs.client_name }}"
-          echo "Tenant   : ${{ inputs.tenant }}"
-          echo "Tipo     : ${{ inputs.tipo_credencial }}"
+          echo "Operación '${{ inputs.operacion }}' completada"
+          echo "Cliente : ${{ inputs.client_name }}"
+          echo "Tenant  : ${{ inputs.tenant }}"
+
+  notificar_fallo:
+    needs: [crear_sp, agregar_scopes, grant_admin, app_roles, keyvault, auditoria]
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reportar fallo del flujo
+        run: |
+          echo "El flujo falló para el cliente: ${{ inputs.client_name }}"
+          echo "Operación  : ${{ inputs.operacion }}"
+          echo "Tenant     : ${{ inputs.tenant }}"
+          echo ""
+          echo "Resultados por job:"
+          echo "  crear_sp       : ${{ needs.crear_sp.result }}"
+          echo "  agregar_scopes : ${{ needs.agregar_scopes.result }}"
+          echo "  grant_admin    : ${{ needs.grant_admin.result }}"
+          echo "  app_roles      : ${{ needs.app_roles.result }}"
+          echo "  keyvault       : ${{ needs.keyvault.result }}"
+          echo "  auditoria      : ${{ needs.auditoria.result }}"
