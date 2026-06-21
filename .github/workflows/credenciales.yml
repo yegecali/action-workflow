@@ -41,7 +41,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Crear entorno virtual e instalar dependencias
+        run: |
+          python -m venv .venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Ejecutar tests
+        run: pytest tests/ -v
+
   crear_sp:
+    needs: tests
     if: ${{ inputs.operacion == 'crear_actualizar' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -82,7 +102,7 @@ jobs:
           exit 1
 
   agregar_scopes:
-    needs: crear_sp
+    needs: [tests, crear_sp]
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 15
