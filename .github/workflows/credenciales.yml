@@ -17,25 +17,40 @@ jobs:
         run: |
           test -f scripts/crear_credenciales.py && echo "crear_credenciales.py encontrado"
           test -f scripts/actualizar_credenciales.py && echo "actualizar_credenciales.py encontrado"
+          test -f scripts/guardar_keyvault.py && echo "guardar_keyvault.py encontrado"
+          test -f scripts/registrar_auditoria.py && echo "registrar_auditoria.py encontrado"
 
   crear:
     needs: validar
     runs-on: ubuntu-latest
+    outputs:
+      client_id: ${{ steps.crear.outputs.client_id }}
+      alias: ${{ steps.crear.outputs.alias }}
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
       - name: Ejecutar script de creación
+        id: crear
         run: python3 scripts/crear_credenciales.py
 
   actualizar:
     needs: crear
     runs-on: ubuntu-latest
+    outputs:
+      client_id: ${{ steps.actualizar.outputs.client_id }}
+      alias: ${{ steps.actualizar.outputs.alias }}
+      redirect_uri: ${{ steps.actualizar.outputs.redirect_uri }}
+      scopes: ${{ steps.actualizar.outputs.scopes }}
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
       - name: Ejecutar script de actualización
+        id: actualizar
+        env:
+          CLIENT_ID: ${{ needs.crear.outputs.client_id }}
+          ALIAS: ${{ needs.crear.outputs.alias }}
         run: python3 scripts/actualizar_credenciales.py
 
   keyvault:
@@ -45,7 +60,9 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Guardar credencial en KeyVault
+      - name: Guardar client_secret en KeyVault
+        env:
+          CLIENT_ID: ${{ needs.actualizar.outputs.client_id }}
         run: python3 scripts/guardar_keyvault.py
 
   auditoria:
@@ -56,6 +73,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Registrar en tabla de auditoría
+        env:
+          ALIAS: ${{ needs.actualizar.outputs.alias }}
+          REDIRECT_URI: ${{ needs.actualizar.outputs.redirect_uri }}
+          SCOPES: ${{ needs.actualizar.outputs.scopes }}
         run: python3 scripts/registrar_auditoria.py
 
   notificar:
