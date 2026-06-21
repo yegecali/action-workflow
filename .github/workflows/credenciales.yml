@@ -36,6 +36,10 @@ on:
         description: 'App Roles a agregar (opcional, separados por coma)'
         required: false
 
+concurrency:
+  group: credencial-${{ github.event.inputs.client_name }}-${{ github.event.inputs.tenant }}
+  cancel-in-progress: false
+
 jobs:
   crear_sp:
     if: ${{ inputs.operacion == 'crear_actualizar' }}
