@@ -1,0 +1,48 @@
+name: Gestión de Credenciales
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Verificar que los scripts existen
+        run: |
+          test -f scripts/crear_credenciales.py && echo "crear_credenciales.py encontrado"
+          test -f scripts/actualizar_credenciales.py && echo "actualizar_credenciales.py encontrado"
+
+  crear:
+    needs: validar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar script de creación
+        run: python3 scripts/crear_credenciales.py
+
+  actualizar:
+    needs: crear
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar script de actualización
+        run: python3 scripts/actualizar_credenciales.py
+
+  notificar:
+    needs: [crear, actualizar]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Flujo completado
+        run: |
+          echo "Flujo de credenciales completado exitosamente"
+          echo "Creación y actualización ejecutadas sin errores"
