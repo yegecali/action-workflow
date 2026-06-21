@@ -4,7 +4,7 @@ import random
 
 client_id = os.environ["CLIENT_ID"]
 
-# En producción: llamada a Graph API para confirmar que el SP existe
+# En producción: GET a Graph API para confirmar que el SP existe
 disponible = random.choices([True, False], weights=[75, 25])[0]
 
 if disponible:
