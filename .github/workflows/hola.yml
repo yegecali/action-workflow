@@ -9,20 +9,29 @@ on:
 jobs:
   saludar:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
       - name: Mostrar saludo
-        run: echo "¡Hola! Este es mi primer GitHub Action 🎉"
-
-      - name: Mostrar fecha y hora
-        run: |
-          echo "Fecha actual: $(date '+%Y-%m-%d %H:%M:%S')"
+        run: echo "¡Hola! Este es mi primer GitHub Action"
 
       - name: Mostrar info del repositorio
         run: |
           echo "Repositorio: ${{ github.repository }}"
           echo "Rama: ${{ github.ref_name }}"
           echo "Autor del commit: ${{ github.actor }}"
+
+  fecha:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mostrar fecha y hora
+        run: |
+          echo "Fecha actual: $(date '+%Y-%m-%d %H:%M:%S')"
+
+  resumen:
+    needs: [saludar, fecha]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resumen final
+        run: echo "Los jobs saludar y fecha terminaron exitosamente"
