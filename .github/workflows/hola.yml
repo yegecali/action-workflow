@@ -1,0 +1,27 @@
+name: Hola Mundo
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  saludar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Mostrar saludo
+        run: echo "¡Hola! Este es mi primer GitHub Action 🎉"
+
+      - name: Mostrar fecha y hora
+        run: echo "Fecha actual: $(date)"
+
+      - name: Mostrar info del repositorio
+        run: |
+          echo "Repositorio: ${{ github.repository }}"
+          echo "Rama: ${{ github.ref_name }}"
+          echo "Autor del commit: ${{ github.actor }}"
