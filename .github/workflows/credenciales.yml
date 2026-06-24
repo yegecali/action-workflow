@@ -188,15 +188,27 @@ jobs:
         run: python scripts/auditoria/registrar.py
 
   notificar_exito:
-    needs: [keyvault, auditoria]
+    needs: [keyvault, auditoria, crear_sp]
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
       - name: Flujo completado exitosamente
         run: |
-          echo "Operación '${{ inputs.operacion }}' completada"
-          echo "Cliente : ${{ inputs.client_name }}"
-          echo "Tenant  : ${{ inputs.tenant }}"
+          echo "### :white_check_mark: ¡Gestión de Credenciales Completada!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Se ha completado el flujo de configuración con los siguientes detalles:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parámetro | Detalle |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Operación** | \`${{ inputs.operacion }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cliente** | \`${{ inputs.client_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tenant** | \`${{ inputs.tenant }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tipo Credencial** | \`${{ inputs.tipo_credencial }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Client ID** | \`${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Scopes** | \`${{ inputs.scopes || 'Ninguno' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **App Roles** | \`${{ inputs.app_roles || 'Ninguno' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> :key: **Nota:** Si la operación fue \`crear_actualizar\`, el client secret ha sido almacenado de manera segura en el KeyVault correspondientemente." >> $GITHUB_STEP_SUMMARY
 
   notificar_fallo:
     needs: [crear_sp, agregar_scopes, grant_admin, app_roles, keyvault, auditoria]
@@ -205,15 +217,34 @@ jobs:
     steps:
       - name: Reportar fallo del flujo
         run: |
-          echo "El flujo falló para el cliente: ${{ inputs.client_name }}"
-          echo "Operación  : ${{ inputs.operacion }}"
-          echo "Tenant     : ${{ inputs.tenant }}"
-          echo ""
-          echo "Resultados por job:"
-          echo "  crear_sp       : ${{ needs.crear_sp.result }}"
-          echo "  agregar_scopes : ${{ needs.agregar_scopes.result }}"
-          echo "  grant_admin    : ${{ needs.grant_admin.result }}"
-          echo "  app_roles      : ${{ needs.app_roles.result }}"
-          echo "  keyvault       : ${{ needs.keyvault.result }}"
-          echo "  auditoria      : ${{ needs.auditoria.result }}"
+          echo "### :x: Fallo en la Gestión de Credenciales" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "El flujo de ejecución ha fallado para el cliente **${{ inputs.client_name }}** en el tenant **${{ inputs.tenant }}**." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Estado de los Jobs:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Resultado |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          
+          print_status() {
+            local job_name=$1
+            local result=$2
+            if [ "$result" = "success" ]; then
+              echo "| $job_name | :white_check_mark: Éxito |" >> $GITHUB_STEP_SUMMARY
+            elif [ "$result" = "failure" ]; then
+              echo "| $job_name | :red_circle: Falló |" >> $GITHUB_STEP_SUMMARY
+            elif [ "$result" = "skipped" ]; then
+              echo "| $job_name | :white_circle: Omitido |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $job_name | :question: $result |" >> $GITHUB_STEP_SUMMARY
+            fi
+          }
+          
+          print_status "Crear SP" "${{ needs.crear_sp.result }}"
+          print_status "Agregar Scopes" "${{ needs.agregar_scopes.result }}"
+          print_status "Grant Admin" "${{ needs.grant_admin.result }}"
+          print_status "App Roles" "${{ needs.app_roles.result }}"
+          print_status "KeyVault" "${{ needs.keyvault.result }}"
+          print_status "Auditoría" "${{ needs.auditoria.result }}"
+
 
