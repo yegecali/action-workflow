@@ -44,18 +44,7 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Crear entorno virtual e instalar dependencias
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          .venv/bin/pip install -r requirements.txt
+      - uses: ./.github/actions/python-setup
 
       - name: Ejecutar tests
         run: pytest tests/ -v
@@ -69,18 +58,7 @@ jobs:
       client_id: ${{ steps.crear.outputs.client_id }}
       client_secret: ${{ steps.crear.outputs.client_secret }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Crear entorno virtual e instalar dependencias
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          .venv/bin/pip install -r requirements.txt
+      - uses: ./.github/actions/python-setup
 
       - name: Crear Service Principal
         id: crear
@@ -90,16 +68,14 @@ jobs:
         run: python scripts/service_principal/crear.py
 
       - name: Verificar propagación del SP
+        uses: nick-fields/retry@v3
         env:
           CLIENT_ID: ${{ steps.crear.outputs.client_id }}
-        run: |
-          for i in {1..12}; do
-            echo "Verificando SP - intento $i/12..."
-            python scripts/service_principal/verificar.py && exit 0
-            sleep 15
-          done
-          echo "ERROR: SP no disponible tras 3 minutos"
-          exit 1
+        with:
+          timeout_seconds: 15
+          max_attempts: 12
+          retry_wait_seconds: 15
+          command: python scripts/service_principal/verificar.py
 
   agregar_scopes:
     needs: [tests, crear_sp]
@@ -107,18 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Crear entorno virtual e instalar dependencias
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          .venv/bin/pip install -r requirements.txt
+      - uses: ./.github/actions/python-setup
 
       - name: Agregar scopes al SP
         env:
@@ -128,16 +93,14 @@ jobs:
         run: python scripts/configuracion/agregar_scopes.py
 
       - name: Verificar propagación de scopes
+        uses: nick-fields/retry@v3
         env:
           CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
-        run: |
-          for i in {1..12}; do
-            echo "Verificando scopes - intento $i/12..."
-            python scripts/configuracion/verificar_scopes.py && exit 0
-            sleep 15
-          done
-          echo "ERROR: Scopes no propagados tras 3 minutos"
-          exit 1
+        with:
+          timeout_seconds: 15
+          max_attempts: 12
+          retry_wait_seconds: 15
+          command: python scripts/configuracion/verificar_scopes.py
 
   grant_admin:
     needs: [crear_sp, agregar_scopes]
@@ -145,18 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Crear entorno virtual e instalar dependencias
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          .venv/bin/pip install -r requirements.txt
+      - uses: ./.github/actions/python-setup
 
       - name: Ejecutar Admin Consent
         env:
@@ -165,16 +117,14 @@ jobs:
         run: python scripts/configuracion/grant_admin.py
 
       - name: Verificar propagación del Admin Consent
+        uses: nick-fields/retry@v3
         env:
           CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
-        run: |
-          for i in {1..12}; do
-            echo "Verificando Admin Consent - intento $i/12..."
-            python scripts/configuracion/verificar_grant.py && exit 0
-            sleep 15
-          done
-          echo "ERROR: Admin Consent no activo tras 3 minutos"
-          exit 1
+        with:
+          timeout_seconds: 15
+          max_attempts: 12
+          retry_wait_seconds: 15
+          command: python scripts/configuracion/verificar_grant.py
 
   app_roles:
     needs: [crear_sp, grant_admin]
@@ -182,18 +132,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Crear entorno virtual e instalar dependencias
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          .venv/bin/pip install -r requirements.txt
+      - uses: ./.github/actions/python-setup
 
       - name: Agregar App Roles
         env:
@@ -202,34 +141,21 @@ jobs:
         run: python scripts/configuracion/agregar_roles.py
 
       - name: Verificar propagación de App Roles
+        uses: nick-fields/retry@v3
         env:
           CLIENT_ID: ${{ inputs.operacion == 'crear_actualizar' && needs.crear_sp.outputs.client_id || inputs.client_id }}
-        run: |
-          for i in {1..12}; do
-            echo "Verificando App Roles - intento $i/12..."
-            python scripts/configuracion/verificar_roles.py && exit 0
-            sleep 15
-          done
-          echo "ERROR: App Roles no propagados tras 3 minutos"
-          exit 1
+        with:
+          timeout_seconds: 15
+          max_attempts: 12
+          retry_wait_seconds: 15
+          command: python scripts/configuracion/verificar_roles.py
 
   keyvault:
     needs: [crear_sp, grant_admin, app_roles]
     if: always() && !failure() && !cancelled() && inputs.operacion == 'crear_actualizar'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Crear entorno virtual e instalar dependencias
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          .venv/bin/pip install -r requirements.txt
+      - uses: ./.github/actions/python-setup
 
       - name: Guardar client_secret en KeyVault
         env:
@@ -242,18 +168,7 @@ jobs:
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Crear entorno virtual e instalar dependencias
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          .venv/bin/pip install -r requirements.txt
+      - uses: ./.github/actions/python-setup
 
       - name: Registrar en tabla de auditoría
         env:
@@ -294,3 +209,4 @@ jobs:
           echo "  app_roles      : ${{ needs.app_roles.result }}"
           echo "  keyvault       : ${{ needs.keyvault.result }}"
           echo "  auditoria      : ${{ needs.auditoria.result }}"
+
