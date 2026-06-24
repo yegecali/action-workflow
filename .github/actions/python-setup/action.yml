@@ -4,9 +4,6 @@ description: 'Prepara el repositorio, configura Python 3.12, crea un entorno vir
 runs:
   using: 'composite'
   steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
